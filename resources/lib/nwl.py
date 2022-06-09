@@ -13,7 +13,7 @@ def categories():
 def list_games(schedule_type='today', page_start=0):
     today = localToEastern()
     yesterday = yesterdays_date()
-    #now = datetime.now(pytz.timezone('UTC'))
+    now = datetime.now(pytz.timezone('UTC'))
     if schedule_type == 'today':
         dir_title = None
         dir_mode = 100
@@ -62,7 +62,7 @@ def list_games(schedule_type='today', page_start=0):
 
                             # parse the scores page
                             page = re.findall('(?s)(?<=<div class="top-info">).*?(?=<div class="extra-links">)', r.text)
-                            print('Number of games in scores page: ' + str(len(page)))
+                            xbmc.log('Number of games in scores page: ' + str(len(page)))
                             utc = pytz.timezone('UTC')
 
                             # loop through games from the scores page
@@ -88,6 +88,7 @@ def list_games(schedule_type='today', page_start=0):
                                     hour = hour[1:]
 
                                 scores[game_day][game_title][hour] = {
+                                    'first_pitch_time': first_pitch_time,
                                     'away_team': html.unescape(team_names[0].strip()),
                                     'home_team': html.unescape(team_names[1].strip()),
                                     'home_score': html.unescape(team_results[1].strip()),
@@ -95,15 +96,27 @@ def list_games(schedule_type='today', page_start=0):
                                     'home_score': html.unescape(team_results[1].strip()),
                                     'away_probable': html.unescape(prob_pitchers[0].split(' (')[0].strip()),
                                     'home_probable': html.unescape(prob_pitchers[1].split(' (')[0].strip()),
-                                    'inning': html.unescape(inning[0].strip().replace('In progress / ', '').replace('Bottom ', 'B ').replace('Top ', 'T ')),
+                                    'inning': '',
                                     'venue': html.unescape(venue_and_time[0].strip())
                                 }
+                                if len(inning) > 0:
+                                    scores[game_day][game_title][hour]['inning'] = html.unescape(inning[0].strip().replace('In progress / ', '').replace('Bottom ', 'B ').replace('Top ', 'T '))
                         except:
                             pass
 
                     score_details = dict()
-                    if game_day in scores and game['title'] in scores[game_day] and utc_game_hour in scores[game_day][game['title']]:
-                        score_details = scores[game_day][game['title']][utc_game_hour]
+                    if game_day in scores and game['title'] in scores[game_day]:
+                        if len(scores[game_day][game['title']]) == 1:
+                            keys = scores[game_day][game['title']].keys()
+                            for key in keys:
+                                score_details = scores[game_day][game['title']][key]
+                                break
+                        elif utc_game_hour in scores[game_day][game['title']]:
+                            score_details = scores[game_day][game['title']][utc_game_hour]
+
+                    if 'inning' in score_details and score_details['inning'] == 'Scheduled' and game_time < UTCToLocal(now):
+                        score_details['inning'] = 'Delayed'
+                        game_time = score_details['first_pitch_time']
 
                     create_game_listitem(game, game_time, game_day, today, score_details)
             elif index >= page_end:
@@ -160,7 +173,12 @@ def create_game_listitem(game, game_time, game_day, today, score_details):
 
     if game['eventStatus'] == 'live':
         if 'inning' in score_details:
-            game_time_display = score_details['inning']
+            if score_details['inning'] == 'Scheduled':
+                game_time_display = game_time_display
+            elif score_details['inning'] == 'Delayed':
+                game_time_display = score_details['inning'] + ' ' + game_time_display
+            else:
+                game_time_display = score_details['inning']
         else:
             game_time_display = game['eventStatus'].upper() + ' ' + game_time_display
 
@@ -182,7 +200,7 @@ def create_game_listitem(game, game_time, game_day, today, score_details):
     if NO_SPOILERS == '1' or (NO_SPOILERS == '2' and fav_game) or (NO_SPOILERS == '3' and game['eventStatus'] == 'live') or (NO_SPOILERS == '4' and game['eventStatus'] == 'on-demand'):
         name += title
     else:
-        if (game['eventStatus'] == 'live' or game['eventStatus'] == 'on-demand') and 'away_team' in score_details and 'home_team' in score_details and 'away_score' in score_details and 'home_score' in score_details:
+        if (game['eventStatus'] == 'live' or game['eventStatus'] == 'on-demand') and 'inning' in score_details and score_details['inning'] != 'Delayed' and 'away_team' in score_details and 'home_team' in score_details and 'away_score' in score_details and 'home_score' in score_details:
             name += score_details['away_team'] + ' ' + score_details['away_score'] + ' at ' + score_details['home_team'] + ' ' + score_details['home_score']
         else:
             name += title
